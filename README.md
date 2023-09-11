@@ -1,4 +1,7 @@
-# Swarm_Environment.py
+Swarm_Environment.py
+
+Start of a machine learning project to eventually simulate swarm behaviour and teach a swarm to work together collaboratively
+
 
 Dependencies: 
 Swarm_Target:
