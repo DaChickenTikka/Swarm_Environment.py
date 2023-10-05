@@ -10,14 +10,14 @@ import time
 # import torch.optim as optim
 # import copy
 from ursina import distance
-DEVICE = 'cpu'
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 class SwarmTargetDQNAgent(torch.nn.Module):
     def __init__(self, params):
         super().__init__()
         self.reward = 0
-        self.gamma = 0.7
+        self.gamma = 0.75
         self.choice = 0
         self.dataframe = pd.DataFrame()
         self.short_memory = np.array([])
@@ -37,7 +37,7 @@ class SwarmTargetDQNAgent(torch.nn.Module):
 
     def network(self):
         # Layers
-        self.f1 = nn.Linear(9, self.first_layer)
+        self.f1 = nn.Linear(8, self.first_layer)
         self.f2 = nn.Linear(self.first_layer, self.second_layer)
         self.f3 = nn.Linear(self.second_layer, self.third_layer)
         self.f4 = nn.Linear(self.third_layer, 3)
@@ -57,13 +57,12 @@ class SwarmTargetDQNAgent(torch.nn.Module):
         """
         - Plan, reduce the vision down to a few neurons of "Unit seen, wall seen, or target seen, left, right, center"
         Return the state.
-        The state is a numpy array of 9 values, representing:
+        The state is a numpy array of 8 values, representing:
             - 0, 1: Rays left see entity => target or wall
             - 2, 3: Center ray sees entity => target or wall
             - 4, 5: Rays right see entity => target or wall
             - target proximity detection
             - wall proximity detection
-            - target hit detection
             - wall hit detection
         """
 
@@ -180,13 +179,13 @@ class SwarmTargetDQNAgent(torch.nn.Module):
         right_wall = False
         center_target = False
         center_wall = False
-        target_hit = False
+        #target_hit = False
 
-        if unit.hit_info.hit:
-            if str(unit.hit_info.entities[0]) == "target":
-                target_hit = True
-            else:
-                target_hit = False
+        #if unit.hit_info.hit:
+        #    if str(unit.hit_info.entities[0]) == "target":
+        #        target_hit = True
+        #    else:
+        #        target_hit = False
 
         for i in unit.vision:
             if unit.vision.index(i) <= (vision_range-1)/2:
@@ -262,9 +261,7 @@ class SwarmTargetDQNAgent(torch.nn.Module):
 
             target_detect,
 
-            wall_detect,
-
-            target_hit
+            wall_detect
         ]
 
         #  print(state)
@@ -306,7 +303,7 @@ class SwarmTargetDQNAgent(torch.nn.Module):
             if unit.success:
                 #self.reward = swarm*50/(len(targets) + 1)
                 #self.reward += swarm*(1 - unit.time_lapsed/time_limit)
-                self.reward = 1000
+                self.reward = 2000
                 print("###########################")
                 print("unit succeeded and rewarded")
                 print("###########################")
@@ -340,16 +337,17 @@ class SwarmTargetDQNAgent(torch.nn.Module):
                 #  elif unit.progress <= Min:
                 #    self.reward = -0.1/(swarm + 1 - len(targets))
 
-                # punishing stationary units, other unit contact and getting disabled
+                # punishing stationary units, other unit contact and getting disabled, rewarding movement slightly
                 if unit.stationary:
                     self.reward -= (time.time() - unit.stationary_start)
+                else:
+                    self.reward += 0.0001
                 if str(unit.hit_info.entity) == "unit":
-                    self.reward -= 1
+                    self.reward -= 2
                 if str(unit.hit_info.entity) == "wall":
-                    self.reward -= 3
+                    self.reward -= 6
                 if unit.disabled:
-                    if unit.time_lapsed > 0.2:
-                        self.reward -= 30
+                    self.reward -= 200
                     unit.disabled = False
 
         #else:
@@ -402,8 +400,8 @@ class SwarmTargetDQNAgent(torch.nn.Module):
         self.train()
         torch.set_grad_enabled(True)
         target = reward
-        next_state_tensor = torch.tensor(next_state.reshape((1, 9)), dtype=torch.float32).to(DEVICE)
-        state_tensor = torch.tensor(state.reshape((1, 9)), dtype=torch.float32, requires_grad=True).to(DEVICE)
+        next_state_tensor = torch.tensor(next_state.reshape((1, 8)), dtype=torch.float32).to(DEVICE)
+        state_tensor = torch.tensor(state.reshape((1, 8)), dtype=torch.float32, requires_grad=True).to(DEVICE)
         if not done:
             target = reward + self.gamma * torch.max(self.forward(next_state_tensor[0]))
         output = self.forward(state_tensor)
