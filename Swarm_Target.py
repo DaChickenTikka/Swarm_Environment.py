@@ -32,14 +32,15 @@ def Imag(p):
 def define_parameters():
     params = dict()
     # Neural Network
+    episodes = 350
     params['learning_rate'] = 0.0001
-    params['first_layer_size'] = 350  # neurons in the first layer
-    params['second_layer_size'] = 35  # neurons in the second layer
+    params['first_layer_size'] = 360  # neurons in the first layer
+    params['second_layer_size'] = 36  # neurons in the second layer
     params['third_layer_size'] = 60  # neurons in the third layer
-    params['episodes'] = 900
-    params['epsilon_decay'] = 0.995
+    params['episodes'] = episodes
+    params['epsilon_decay'] = 0.015 ** (1 / episodes)
     params['memory_size'] = 100000
-    params['batch_size'] = 3000
+    params['batch_size'] = 5000
     # Settings
     params['load_weights'] = False
     params['train'] = True
@@ -51,8 +52,12 @@ def define_parameters():
         ID += '_train_'
     if params["test"]:
         ID += '_test_'
-    params['weights_path'] = 'weights/20230909130914_train_.h5'
+    params['weights_path'] = 'weights/' + ID + '.h5'
     params['log_path'] = 'logs/scores' + ID + '.txt'
+    # Environment
+    params["base_scale"] = 20
+    params["swarm_size"] = 1
+    params["targets_amount"] = 1
     return params
 
 
@@ -66,13 +71,14 @@ class Target(Entity):
     def update(self):
         self.rotation_y += 100 * time.dt
         self.hit_info = self.intersects()
+        base_scale = params["base_scale"]
 
         if self.hit_info.hit:
             if str(self.hit_info.entity) == "unit":
                 self.respawn = 0
                 self.hit_info.entities[0].target_count += 1
                 self.hit_info.entities[0].success = 1
-                #for i in swarm:
+                # for i in swarm:
                 #    if i.position == self.hit_info.entity.position:
                 #        i.success = 1
                 #        i.movement = False
@@ -90,9 +96,9 @@ class Target(Entity):
                     i.disable()
                     targets.remove(i)
 
-        if len(targets) < target_count:  #  and self.respawn:
+        if len(targets) < target_count:  # and self.respawn:
             targets.append(
-                Target(model='cube', texture='vignette',  #scale=(0.75, 0.75, 0.75),
+                Target(model='cube', texture='vignette',  # scale=(0.75, 0.75, 0.75),
                        collider='box', origin_y=-.5, color=color.violet,
                        x=random.randint(round(-(base_scale - 1) / 2) + 2, round((base_scale - 1) / 2) - 2),
                        y=0.1,
@@ -116,7 +122,7 @@ class Unit(Entity):
         self.hit_info = 0
         self.vision = []
         self.vision_lines = 7
-        self.len_vision = base_scale * 0.5
+        self.len_vision = params["base_scale"] * 0.5
         self.time_lapsed = 0
         self.final_time = 0
         self.move = [0, 0, 0]  # [turn left, go forward, turn right]
@@ -125,7 +131,6 @@ class Unit(Entity):
         self.stationary_start = time.time()
         self.rewarded = 0
         self.disabled = False
-        self.progress = base_scale
         self.reward = 0
         self.respawn = False
         self.target_count = 0
@@ -147,11 +152,13 @@ class Unit(Entity):
                 dirz = Imag(direction)[0]
                 dir = Vec3(-dirx, 0, dirz).normalized()
 
-            self.vision.append(raycast(origin, direction=dir, ignore=(self, Unit, Wall), distance=self.len_vision, debug=True))
+            self.vision.append(
+                raycast(origin, direction=dir, ignore=(self, Unit, Wall), distance=self.len_vision, debug=True))
 
             x += 1
 
     def update(self):
+        base_scale = params["base_scale"]
         #  controlling spawn behaviour and size and eliminating swarm if it somehow passes the boundaries
         while len(swarm) < swarm_count and self.respawn:
             swarm.append(Unit(model='cube', collider='box', origin_y=-.5, color=color.blue,
@@ -164,8 +171,9 @@ class Unit(Entity):
             swarm[len(swarm) - 1].disable()
             swarm.remove(swarm[len(swarm) - 1])
 
-        if self.x > round((base_scale + 1) / 2) or self.x < -round((base_scale + 1) / 2) or self.z > round(
-                (base_scale + 1) / 2) or self.z < -round((base_scale + 1) / 2):
+        if self.x > round((base_scale + 1) / 2) - 0.35 or self.x < -round(
+                (base_scale + 1) / 2) + 0.35 or self.z > round(
+                (base_scale + 1) / 2) - 0.35 or self.z < -round((base_scale + 1) / 2) + 0.35:
             for i in swarm:
                 if i.position == self.position:
                     self.x = random.randint(-round((base_scale - 1) / 2 + 3), round((base_scale - 1) / 2) - 3)
@@ -176,7 +184,7 @@ class Unit(Entity):
             pass
         else:
             # rotation control
-            self.rotation_y += (self.move[2] - self.move[0]) * time.dt * 400
+            self.rotation_y += (self.move[2] - self.move[0]) * time.dt * 220
 
             # direction control
             self.direction = (Vec3(sin(self.rotation_y * pi / 180), 0, cos(self.rotation_y * pi / 180)))
@@ -188,28 +196,28 @@ class Unit(Entity):
             self.hit_info = self.intersects()
             self.previous_position = self.position  # save the current position of the cube before it updates
 
-            # check if the cube is stationary
-            if self.position == self.previous_position:
-                self.stationary = True
-            else:
-                self.stationary_start = time.time()
-                self.stationary = False
-
             # if the ray doesn't hit anything, allow movement
             if not self.hit_info.hit:
-                self.position += self.direction * 5 * time.dt * self.move[1]
+                self.position += self.direction * params["base_scale"] / 4 * time.dt * self.move[1]
 
             # if the ray hits a target, disable the target, set the cube to have succeeded, then spawn in a new random
             # target
             elif str(self.hit_info.entity) == "target":
                 self.success = 1
-                #self.movement = False
-                #self.color = color.white
+                # self.movement = False
+                # self.color = color.white
                 for i in targets:
                     i.respawn = 0
                     if i.position == self.hit_info.entity.position:
                         i.disabled = 1
 
+            # check if the cube is stationary
+            if self.position == self.previous_position:
+                self.stationary = True
+            # self.move_start = time.time()
+            else:
+                self.stationary_start = time.time()
+                self.stationary = False
             # if a success metric has been achieved, do the following:
             if self.success:
                 self.target_count += 1
@@ -224,9 +232,6 @@ class Unit(Entity):
 
             # if success hasn't been achieved, then allow the cube to refresh its personal timer and its vision rays
             if not self.success:
-                # check if the cube is stationary
-                if self.position == self.previous_position:
-                    self.stationary = True
 
                 # setting up the vision of the swarm unit
                 x = 0
@@ -302,7 +307,7 @@ def plot_seaborn(array_counter, array_score, train):
     ax = sns.regplot(
         x=array([array_counter]),
         y=array([array_score]),
-        #color="#36688D",
+        # color="#36688D",
         x_jitter=.1,
         scatter_kws={"color": "#36688D"},
         label='Data',
@@ -310,15 +315,15 @@ def plot_seaborn(array_counter, array_score, train):
         line_kws={"color": "#F49F05"}
     )
     # Plot the average line
-    y_mean = [mean(array_score)]*len(array_counter)
+    y_mean = [mean(array_score)] * len(array_counter)
     ax.plot(array_counter, y_mean, label='Mean', linestyle='--')
     ax.legend(loc='upper right')
     ax.set(xlabel='Episode', ylabel='Total Reward')
-    plt.savefig(fname='plots/'+params['log_path'].lstrip('logs/scores_').rstrip(".txt")+'_plot.png', format='png')
+    plt.savefig(fname='plots/' + params['log_path'].lstrip('logs/scores_').rstrip(".txt") + '_plot.png', format='png')
 
 
-def get_mean_stdev(array):
-    return statistics.mean(array), statistics.stdev(array)
+def get_mean_stdev(arr):
+    return statistics.mean(arr), statistics.stdev(arr)
 
 
 def test(params):
@@ -330,29 +335,29 @@ def test(params):
 
 
 def initialize(unit, list_targets, agent, batch_size):
-    state_init1 = agent.get_state(unit, list_targets, walls, swarm_count, target_count, base_scale)  # get the state of the unit
+    state_init1 = agent.get_state(unit, list_targets, walls, swarm_count, target_count,
+                                  params["base_scale"])  # get the state of the unit
     unit.move = [0, 1, 0]
-    state_init2 = agent.get_state(unit, list_targets, walls, swarm_count, target_count, base_scale)
-    reward1 = agent.set_reward(unit, list_targets, swarm_count, base_scale, time_limit, done)
+    state_init2 = agent.get_state(unit, list_targets, walls, swarm_count, target_count, params["base_scale"])
+    reward1 = agent.set_reward(unit, list_targets, swarm_count, params["base_scale"], time_limit, done)
     agent.remember(state_init1, unit.move, reward1, state_init2, done)
     agent.replay_new(agent.memory, batch_size)
+
+
+done = 0
 
 
 def run_simulation(params):
     window.vsync = False
     app = Ursina(size=(1800, 900))
 
-    global done
-    done = 0
-
     #  set the size scaling you want for the world
-    global base_scale
-    base_scale = 40
+    base_scale = params["base_scale"]
 
     # set the time limit in seconds
     # noinspection PyGlobalUndefined
     global time_limit
-    time_limit = 10
+    time_limit = 12
 
     # the ground for the swarm to work from
     ground = Entity(model='plane', scale=(base_scale, 1, base_scale), color=color.yellow.tint(-.2),
@@ -376,25 +381,25 @@ def run_simulation(params):
 
     # set the number of targets and/or swarm units you want
     global target_count
-    target_count = 8
+    target_count = params["targets_amount"]
     global swarm_count
-    swarm_count = 4
+    swarm_count = params["swarm_size"]
 
     # the boundaries of the world to contain the units on the ground
-    #north = Wall(name='North', model='cube', collider='box', scale=(base_scale, base_scale, 2), color=color.white10)
-    #south = Wall(name='South', model='cube', collider='box', scale=(base_scale, base_scale, 2), color=color.white10)
-    #east = Wall(name='East', model='cube', collider='box', scale=(base_scale, base_scale, 2), rotation=(0, 90, 0),
+    # north = Wall(name='North', model='cube', collider='box', scale=(base_scale, base_scale, 2), color=color.white10)
+    # south = Wall(name='South', model='cube', collider='box', scale=(base_scale, base_scale, 2), color=color.white10)
+    # east = Wall(name='East', model='cube', collider='box', scale=(base_scale, base_scale, 2), rotation=(0, 90, 0),
     #            color=color.white10)
-    #west = Wall(name='West', model='cube', collider='box', scale=(base_scale, base_scale, 2), rotation=(0, 90, 0),
+    # west = Wall(name='West', model='cube', collider='box', scale=(base_scale, base_scale, 2), rotation=(0, 90, 0),
     #            color=color.white10)
-    #north.z = base_scale / 2 + 1
-    #north.eternal = True
-    #south.z = -base_scale / 2 - 1
-    #south.eternal = True
-    #east.x = base_scale / 2 + 1
-    #east.eternal = True
-    #west.x = -base_scale / 2 - 1
-    #west.eternal = True
+    # north.z = base_scale / 2 + 1
+    # north.eternal = True
+    # south.z = -base_scale / 2 - 1
+    # south.eternal = True
+    # east.x = base_scale / 2 + 1
+    # east.eternal = True
+    # west.x = -base_scale / 2 - 1
+    # west.eternal = True
 
     wall_generate = 0
 
@@ -411,8 +416,6 @@ def run_simulation(params):
 
     for i in walls:
         i.eternal = True
-
-
 
     # initialise the camera to view the world
     viewer = Camera()
@@ -475,7 +478,8 @@ def run_simulation(params):
             targets.append(
                 Target(model='cube', texture='vignette',  # scale=(0.75, 0.75, 0.75),
                        collider='box', origin_y=-.5,
-                       color=color.violet, x=random.randint(round(-(base_scale - 1) / 2) + 2, round((base_scale - 1) / 2) - 2),
+                       color=color.violet,
+                       x=random.randint(round(-(base_scale - 1) / 2) + 2, round((base_scale - 1) / 2) - 2),
                        y=0.1, z=random.randint(round(-(base_scale - 1) / 2) + 2, round((base_scale - 1) / 2) - 2)))
 
         global start_time
@@ -517,7 +521,7 @@ def run_simulation(params):
             time_lapsed = time.time() - start_time  # subtract the current time from the start time for the time elapsed
             timer.text = "Time: " + str(round(time_lapsed, 3)) + 's'  # print the timer
             swarm_counter.text = "Units Remaining: " + str(len(swarm))  # print the target counter
-            episode_count.text = "Episode " + str(counter_episodes)     # print the episode counter
+            episode_count.text = "Episode " + str(counter_episodes)  # print the episode counter
             Target_count.text = "Targets Found: " + str(total_targets)  # print the target counter
 
             # get old state
@@ -533,7 +537,7 @@ def run_simulation(params):
                 else:
                     # predict action based on the old state
                     with torch.no_grad():
-                        state_old_tensor = torch.tensor(state_old.reshape((1, 9)), dtype=torch.float32).to(
+                        state_old_tensor = torch.tensor(state_old.reshape((1, 8)), dtype=torch.float32).to(
                             DEVICE)
                         prediction = agent(state_old_tensor)
                         final_move = eye(3)[argmax(prediction.detach().cpu().numpy()[0])]
@@ -548,7 +552,8 @@ def run_simulation(params):
                 # set reward for the new state
                 Reward = agent.set_reward(i, targets, swarm_count, base_scale, time_limit, done)
                 i.reward = Reward
-                # print(f"unit: ({swarm.index(i)}), move: {i.move}, reward: {i.reward}, epsilon: {agent.epsilon}, choice: {i.choice}")
+                #print(
+                #    f"unit: ({swarm.index(i)}), move: {i.move}, reward: {i.reward}, epsilon: {agent.epsilon}, choice: {i.choice}")
                 total_reward += Reward
 
                 if params['train'] or params['continue_train']:
@@ -591,18 +596,26 @@ def run_simulation(params):
             plot_seaborn(time_plot, reward_plot, params['train'])
     if params['plot_score']:
         plot_seaborn(time_plot, reward_plot, params['train'])
-    mean, stdev = get_mean_stdev(reward_plot)
+    meaN, stdev = get_mean_stdev(reward_plot)
 
-    return total_reward, mean, stdev
+    return total_reward, meaN, stdev
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     params = define_parameters()
     parser.add_argument("--display", nargs='?', type=distutils.util.strtobool, default=True)
-    parser.add_argument("--bayesianopt", nargs='?', type=distutils.util.strtobool, default=False)#not params['test'])
+    parser.add_argument("--bayesianopt", nargs='?', type=distutils.util.strtobool, default=False)  # not params['test'])
     args = parser.parse_args()
     print("Args", args)
+    #print(f"Is CUDA supported by this system?{torch.cuda.is_available()}")
+    #print(f"CUDA version: {torch.version.cuda}")
+
+    # Storing ID of current CUDA device
+    #cuda_id = torch.cuda.current_device()
+    #print(f"ID of current CUDA device:{torch.cuda.current_device()}")
+
+    #print(f"Name of current CUDA device:{torch.cuda.get_device_name(cuda_id)}")
     params['display'] = args.display
     if args.bayesianopt:
         bayesOpt = BayesianOptimizer(params)
