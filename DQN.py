@@ -6,10 +6,10 @@ import collections
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import time
+# import time
 # import torch.optim as optim
 # import copy
-from ursina import distance
+import math
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -17,7 +17,7 @@ class SwarmTargetDQNAgent(torch.nn.Module):
     def __init__(self, params):
         super().__init__()
         self.reward = 0
-        self.gamma = 0.75
+        self.gamma = 0.99
         self.choice = 0
         self.dataframe = pd.DataFrame()
         self.short_memory = np.array([])
@@ -63,139 +63,25 @@ class SwarmTargetDQNAgent(torch.nn.Module):
             - 4, 5: Rays right see entity => target or wall
             - target proximity detection
             - wall proximity detection
-            - wall hit detection
         """
 
-        """
-                if unit.vision[0].entity is not None:
-                    a = unit.vision[0].entity
-                else:
-                    a = False
-
-                if unit.vision[1].entity is not None:
-                    b = unit.vision[1].entity
-                else:
-                    b = False
-
-                if unit.vision[2].entity is not None:
-                    c = unit.vision[2].entity
-                else:
-                    c = False
-
-                if unit.vision[3].entity is not None:
-                    d = unit.vision[3].entity
-                else:
-                    d = False
-
-                if unit.vision[4].entity is not None:
-                    e = unit.vision[4].entity
-                else:
-                    e = False
-
-                if unit.vision[5].entity is not None:
-                    f = unit.vision[5].entity
-                else:
-                    f = False
-
-                if unit.vision[6].entity is not None:
-                    g = unit.vision[6].entity
-                else:
-                    g = False
-                    
-                    
-                    
-                    (a and a.name),  # Ray 0 identifies entity
-
-            (a and float(distance(unit, a))),  # Ray 0 identifies entity distance from the unit
-
-            (a and a.color),   # Ray 0 identifies entity colour
-
-            (b and b.name),  # Ray 1
-
-            (b and float(distance(unit, b))),  #''
-
-            (b and b.color),   #''
-
-            (c and c.name),  # Ray 2
-
-            (c and float(distance(unit, c))),  #''
-
-            (c and c.color),   #''
-
-            (d and d.name),  # Ray 3
-
-            (d and float(distance(unit, d))),  #''
-
-            (d and d.color),   #''
-
-            (e and e.name),  # Ray 4
-
-            (e and float(distance(unit, e))),  #''
-
-            (e and e.color),   #''
-
-            (f and f.name),  # Ray 5
-
-            (f and float(distance(unit, f))),  #''
-
-            (f and f.color),   #''
-
-            (g and g.name),  # Ray 6
-
-            (g and float(distance(unit, g))),  #''
-
-            (g and g.color),   #''
-            
-            match state[i]:
-                case 'target':
-                    state[i] = 2
-                case 'unit':
-                    state[i] = 3
-                case 'North':
-                    state[i] = 4
-                case 'South':
-                    state[i] = 5
-                case 'East':
-                    state[i] = 6
-                case 'West':
-                    state[i] = 7
-                case 'red':
-                    state[i] = 8
-                case 'white':
-                    state[i] = 9
-                case 'blue':
-                    state[i] = 10
-                case'white10':
-                    state[i] = 11
-                case 'wall':
-                    state[i] = 12
-                case _:
-        """
-
-        vision_range = len(unit.vision)
+        vision_range = unit.vision_lines
         left_target = False
         left_wall = False
         right_target = False
         right_wall = False
         center_target = False
         center_wall = False
-        #target_hit = False
-
-        #if unit.hit_info.hit:
-        #    if str(unit.hit_info.entities[0]) == "target":
-        #        target_hit = True
-        #    else:
-        #        target_hit = False
 
         for i in unit.vision:
             if unit.vision.index(i) <= (vision_range-1)/2:
                 if i.hit:
-                    if str(i.entities[0]) == "target":
+                    if str(i.entities[0]) in targets:
                         left_target = True
                         continue
                     else:
                         left_target = False
-                    if str(i.entities[0]) == "wall":
+                    if str(i.entities[0]) in walls:
                         left_wall = True
                     else:
                         left_wall = False
@@ -223,28 +109,19 @@ class SwarmTargetDQNAgent(torch.nn.Module):
                     else:
                         center_target = False
 
-        if swarm_count*target_count/(swarm_count + target_count) > 1:
-            scale = swarm_count*target_count/(swarm_count + target_count)
-        else:
-            scale = 1
-
-        for i in targets:
-            if distance(unit, i) < 3 + base_scale / (15*scale):
+        if unit.detect_entity.hit:
+            detected_set = {str(df.name) for df in unit.detect_entity.entities}
+            if detected_set.intersection({str(tar) for tar in targets}) != set():
                 target_detect = 1
             else:
                 target_detect = 0
-
-        for j in walls:
-            if distance(unit, j) < np.ceil(np.log10(base_scale)*1.5) + 2*pow(2, 0.5):
+            if detected_set.intersection({str(wall) for wall in walls}) != set():
                 wall_detect = 1
-                break
             else:
                 wall_detect = 0
-
-        #if unit.rotation_y > 360:
-        #    unit.rotation_y -= 360
-        #if unit.rotation_y < 0:
-        #    unit.rotation_y += 360
+        else:
+            target_detect = 0
+            wall_detect = 0
 
         state = [
             left_target,
@@ -267,9 +144,7 @@ class SwarmTargetDQNAgent(torch.nn.Module):
         #  print(state)
 
         for i in range(len(state)):
-            if type(state[i]) == float:
-                state[i] = float(state[i])
-            elif state[i]:
+            if state[i]:
                 state[i] = True
             else:
                 state[i] = False
@@ -288,75 +163,40 @@ class SwarmTargetDQNAgent(torch.nn.Module):
             - If a unit is in action, it will be punished if it increases its distance from its closest target,
               but is rewarded slightly for progressing towards its closest target
             - Positive rewards scale upwards based on how many targets have been found
-
-        (At the end of the simulation)
-            - If a unit succeeds, a reward is given to the swarm equal to the number of swarm units
-            - if a unit fails, it's punished based on how far it is away from the nearest available target
-            - The unit punishment won't ever exceed the number of successful units
-            With this system for the end of a simulation, if one unit succeeds, everyone gets a reward, but then every
-            single point is the responsibility of the other units to maintain, so the closer a unit is to a target, the
-            more of the point it gets to retain.
-            If two units succeed, then the remainder are responsible for double the number of points
         """
         self.reward = 0
         if not done:
             if unit.success:
-                #self.reward = swarm*50/(len(targets) + 1)
-                #self.reward += swarm*(1 - unit.time_lapsed/time_limit)
-                self.reward = 2000
-                print("###########################")
-                print("unit succeeded and rewarded")
-                print("###########################")
+                self.reward = 20*(int(unit.target_count/2) <= 1) + 100*(2**(int(unit.target_count/2) - 1))*(int(unit.target_count/2) >= 2)
+                print("###################################################")
+                print(f"{unit.name} succeeded and rewarded, total targets {unit.target_count/2}")
+                print("###################################################")
                 unit.success = 0
                 return self.reward  #*(swarm - len(targets) + 1) * 3
 
-            # Min = scale  # variable to store the smallest distance unit has from a target
-            # for i in targets:
-            #    if Min > distance(unit, i):  # finding the smallest distance a unit has from a target
-            #        Min = distance(unit, i)
-
             if not unit.success:
-                #  self.reward = -0.0005*len(targets)
-
-                ##  Rewarding for closer proximity to a target  ##
-                #  if Min < scale/3:
-                #      self.reward += 0.001*(swarm - len(targets) + 1)
-                #  if Min < scale/6:
-                #      self.reward += 0.0005*(swarm - len(targets) + 1)
-                #  if Min < scale/10:
-                #      self.reward += 0.0005*(swarm - len(targets) + 1)
-                #  if Min < scale / 100:
-                #      self.reward += 0.001*(swarm - len(targets) + 1)
-
-
-                ##  Punishing for not making progress to a target  ##
-                #  if unit.progress > Min:
-                #    self.reward = 0.5 * (len(swarm) + 1 - len(targets))
-                #    self.reward = 0
-                #    unit.progress = Min
-                #  elif unit.progress <= Min:
-                #    self.reward = -0.1/(swarm + 1 - len(targets))
 
                 # punishing stationary units, other unit contact and getting disabled, rewarding movement slightly
-                if unit.stationary:
-                    self.reward -= (time.time() - unit.stationary_start)
+                if not unit.stationary:
+                    self.reward = 0.001  #(time.time() - unit.stationary_start)*2
                 else:
-                    self.reward += 0.0001
-                if str(unit.hit_info.entity) == "unit":
-                    self.reward -= 2
-                if str(unit.hit_info.entity) == "wall":
-                    self.reward -= 6
-                if unit.disabled:
-                    self.reward -= 200
-                    unit.disabled = False
-
-        #else:
-        #    minimum = scale
-        #    if not unit.success or not unit.rewarded:
-        #        for j in targets:
-        #            if distance(j, unit) < minimum:
-        #                minimum = distance(j, unit)
-        #        self.reward = (swarm - len(targets))*((scale - minimum)/scale)*swarm
+                    self.reward = -0.001
+                if str(unit.hit_info.entity)[0] == "U":
+                    self.reward -= 0.8
+                if str(unit.hit_info.entity)[0] == "W":
+                    self.reward -= 1.5
+                if unit.goal_found:
+                    self.reward += (2**(unit.target_count/2))*0.1
+                    print("########### Found mini goal ###########")
+                    unit.goal_found = 0
+                if unit.goal_lost:
+                    self.reward -= 0.5*1/(unit.target_count/2 + 1)
+                    print("############ Losing target ############")
+                    unit.goal_lost = 0
+                if unit.disabled == 1:
+                    unit.disabled = 0
+                    # self.reward -= 500
+                    print("########### Unit Disabled ###########")
 
         return round(self.reward, 4)
 
@@ -412,3 +252,45 @@ class SwarmTargetDQNAgent(torch.nn.Module):
         loss = F.mse_loss(output, target_f)
         loss.backward()
         self.optimizer.step()
+
+
+
+class DuelingDQN(torch.nn.Module):
+    """Convolutional neural network for the Atari games."""
+
+    def __init__(self, num_actions):
+        super(DuelingDQN, self).__init__()
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=4)
+        std = math.sqrt(2.0 / (4 * 84 * 84))
+        nn.init.normal_(self.conv1.weight, mean=0.0, std=std)
+        self.conv1.bias.data.fill_(0.0)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        std = math.sqrt(2.0 / (32 * 4 * 8 * 8))
+        nn.init.normal_(self.conv2.weight, mean=0.0, std=std)
+        self.conv2.bias.data.fill_(0.0)
+
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+        std = math.sqrt(2.0 / (64 * 32 * 4 * 4))
+        nn.init.normal_(self.conv3.weight, mean=0.0, std=std)
+        self.conv3.bias.data.fill_(0.0)
+
+        self.fc1 = nn.Linear(64 * 7 * 7, 512)
+        std = math.sqrt(2.0 / (64 * 64 * 3 * 3))
+        nn.init.normal_(self.fc1.weight, mean=0.0, std=std)
+        self.fc1.bias.data.fill_(0.0)
+        self.V = nn.Linear(512, 1)
+        self.A = nn.Linear(512, num_actions)
+
+    def forward(self, states):
+        """Forward pass of the neural network with some inputs."""
+        x = F.relu(self.conv1(states))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.fc1(x.view(x.size(0), -1)))  # Flatten imathut.
+        V = self.V(x)
+        A = self.A(x)
+        Q = V + (A - A.mean(dim=1, keepdim=True))
+        return Q
+
+
